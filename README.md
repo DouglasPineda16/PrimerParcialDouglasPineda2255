@@ -1,7 +1,7 @@
 # Censo El Progreso – Douglas Pineda (1890-22-2255)
 
 Front-End en Bootstrap que consume la API pública del censo:
-https://censopoblacion.azurewebsites.net/API/indicadores/2/{codigo}
+https://censopoblacion.azurewebsites.net/API/indicadores/2/999
 
 - 999: resumen departamental
 - 201–208: municipios de El Progreso
