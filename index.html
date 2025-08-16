@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Censo El Progreso — Douglas Pineda (1890-22-2255)</title>
+
+  <!-- Bootstrap local -->
+  <link rel="stylesheet" href="bootstrap-5.3.7-dist/css/bootstrap.min.css">
+
+  <style>
+    /* Paleta simple y buen contraste */
+    :root{
+      --bg:#0f1320; --panel:#191f32; --ink:#f5f7ff; --muted:#b8bfd9;
+      --brand:#0d6efd; --accent:#a50044; --line:#2d3558;
+    }
+    body{background:var(--bg);color:var(--ink)}
+    .brandbar{background:linear-gradient(90deg,var(--brand),var(--accent));}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:.75rem}
+    .muted{color:var(--muted)!important}
+    .kpi{background:#12182b;border:1px solid var(--line);border-radius:.75rem;padding:1rem;height:100%}
+    .kpi h6{margin:0;font-size:.9rem;color:var(--muted)}
+    .kpi .val{font-weight:700;font-size:1.4rem}
+    .bar{height:12px;border-radius:6px;background:#273055;overflow:hidden}
+    .bar>span{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--accent))}
+    .table>:not(caption)>*>*{background:transparent;color:var(--ink);border-color:#2b345c}
+    .btn-accent{background:var(--accent);border-color:var(--accent)}
+    .btn-accent:hover{background:#6a0033;border-color:#6a0033}
+  </style>
+</head>
+<body>
+
+  <!-- Encabezado -->
+  <header class="brandbar text-white">
+    <div class="container py-3">
+      <div class="d-flex flex-column flex-lg-row justify-content-between gap-2">
+        <div>
+          <h1 class="h4 m-0">Censo — Departamento El Progreso</h1>
+          <small class="muted">Front-End dinámico | Douglas Pineda | 1890-22-2255</small>
+        </div>
+
+        <form class="d-flex align-items-center gap-2">
+          <span class="badge bg-dark">Depto 2 — El Progreso</span>
+          <select id="municipio" class="form-select form-select-sm">
+            <option value="999" selected>Resumen Departamental (999)</option>
+            <option value="201">Guastatoya (201)</option>
+            <option value="202">Morazán (202)</option>
+            <option value="203">San Agustín Acasaguastlán (203)</option>
+            <option value="204">San Cristóbal Acasaguastlán (204)</option>
+            <option value="205">El Jícaro (205)</option>
+            <option value="206">Sansare (206)</option>
+            <option value="207">Sanarate (207)</option>
+            <option value="208">San Antonio La Paz (208)</option>
+          </select>
+          <button id="btnCargar" class="btn btn-sm btn-accent" type="button">Cargar datos</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mensajes de estado -->
+  <div id="estado" class="container mt-3"></div>
+
+  <!-- KPIs -->
+  <section class="container my-3">
+    <div id="kpis" class="row g-3"></div>
+  </section>
+
+  <!-- Dos columnas: barras + tabla -->
+  <main class="container mb-5">
+    <div class="row g-4">
+      <section class="col-lg-6">
+        <div class="panel p-3">
+          <h2 class="h5 mb-3">Población por sexo</h2>
+          <div id="sexo"></div>
+          <hr class="border-secondary border-opacity-25">
+          <h2 class="h5 mb-3">Grandes grupos de edad</h2>
+          <div id="edad"></div>
+        </div>
+      </section>
+
+      <section class="col-lg-6">
+        <div class="panel p-3">
+          <h2 class="h5">Más indicadores</h2>
+          <div class="table-responsive mt-3" style="max-height:520px;overflow:auto">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr class="text-uppercase small">
+                  <th>Indicador</th><th class="text-end">Valor</th><th>Unidad</th>
+                </tr>
+              </thead>
+              <tbody id="tablaIndicadores"><tr><td colspan="3" class="muted">Cargando…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="text-center py-4 border-top border-secondary border-opacity-25">
+    <small class="muted">Publicado por Douglas Pineda — 1890-22-2255 · Fuente: censo2018 (INE)</small>
+  </footer>
+
+  <script src="bootstrap-5.3.7-dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    /* ========= Config ========= */
+    const BASE  = "https://censopoblacion.azurewebsites.net/API/indicadores/2/";
+    const PROXY = "https://cors.isomorphic-git.org/"; // fallback anti-CORS
+
+    const $estado = document.getElementById("estado");
+    const $kpis   = document.getElementById("kpis");
+    const $sexo   = document.getElementById("sexo");
+    const $edad   = document.getElementById("edad");
+    const $tabla  = document.getElementById("tablaIndicadores");
+    const $sel    = document.getElementById("municipio");
+    const $btn    = document.getElementById("btnCargar");
+
+    // ---- Helpers UI ----
+    const ui = {
+      msg: (cls,txt)=> $estado.innerHTML =
+        `<div class="alert ${cls} py-2">${txt}</div>`,
+      spin: ()=> ui.msg("alert-dark d-flex align-items-center gap-2",
+        `<span class="spinner-border spinner-border-sm"></span> Cargando datos…`),
+      ok:  t => ui.msg("alert-success py-2", t),
+      err: t => ui.msg("alert-danger py-2", t)
+    };
+
+    // Convertir a número seguro (acepta null/strings) y formatear
+    const num = (v) => {
+      if (v == null) return 0;
+      const s = String(v).replaceAll(',', '').trim();
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const fmt = (v) => num(v).toLocaleString();
+
+    // Porcentaje seguro para barras
+    const pct = (n,total)=>{
+      const t = num(total), v = num(n);
+      return t ? Math.min(100, Math.max(0, (v*100)/t)) : 0;
+    };
+
+    // ---- Componentes ----
+    const kpi = (label, val, sub="") => `
+      <div class="col-6 col-md-3">
+        <div class="kpi">
+          <h6>${label}</h6>
+          <div class="val">${val ?? "—"}</div>
+          ${sub ? `<div class="small muted">${sub}</div>` : ""}
+        </div>
+      </div>`;
+
+    const bar = (label, value, total) => `
+      <div class="mb-3">
+        <div class="d-flex justify-content-between">
+          <span class="small">${label}</span>
+          <span class="small">${fmt(value)}</span>
+        </div>
+        <div class="bar mt-1"><span style="width:${Math.round(pct(value,total))}%"></span></div>
+      </div>`;
+
+    // ---- Fetch con fallback anti-CORS ----
+    async function getJson(url){
+      try{
+        const r = await fetch(url);
+        if(!r.ok) throw new Error("HTTP "+r.status);
+        return await r.json();
+      }catch(e){
+        const r2 = await fetch(PROXY + url);
+        if(!r2.ok) throw new Error("HTTP "+r2.status);
+        return await r2.json();
+      }
+    }
+
+    // ---- Render con JSON de la API ----
+    function render(raw){
+      // La API a veces devuelve un STRING JSON (doble serialización):
+      const data = (typeof raw === "string") ? JSON.parse(raw) : raw;
+
+      // KPIs principales
+      $kpis.innerHTML = [
+        kpi("Población total", fmt(data.pob_total)),
+        kpi("Hombres",        fmt(data.total_sexo_hombre)),
+        kpi("Mujeres",        fmt(data.total_sexo_mujeres)),
+        kpi("Viviendas",      fmt(data.viviendas_part))
+      ].join("");
+
+      // Barras por sexo
+      const hombres = num(data.total_sexo_hombre);
+      const mujeres = num(data.total_sexo_mujeres);
+      const totalSexo = hombres + mujeres;
+      $sexo.innerHTML = [
+        bar("Hombres", hombres, totalSexo),
+        bar("Mujeres", mujeres, totalSexo)
+      ].join("");
+
+      // Barras por grandes grupos de edad
+      const e014  = num(data.pob_edad_014);
+      const e1564 = num(data.pob_edad_1564);
+      const e65   = num(data.pob_edad_65);
+      const totalEdad = e014 + e1564 + e65;
+      $edad.innerHTML = [
+        bar("0-14 años",  e014,  totalEdad),
+        bar("15-64 años", e1564, totalEdad),
+        bar("65+ años",   e65,   totalEdad)
+      ].join("");
+
+      // Tabla de indicadores (muestra varias llaves útiles).
+      const filas = [
+        ["Índice masculinidad",     num(data.indice_masculinidad), ""],
+        ["Alfabetismo (%)",         num(data.alfabetismo),         "%"],
+        ["Hogares",                 num(data.total_hogares),       ""],
+        ["Personas por hogar (prom)", num(data.prom_personas_hogar), ""],
+        ["Sector urbano",           num(data.total_sector_urbano), ""],
+        ["Sector rural",            num(data.total_sector_rural),  ""],
+        ["Pueblo ladino",           num(data.pob_pueblo_ladino),   ""],
+        ["Pueblo maya",             num(data.pob_pueblo_maya),     ""],
+        ["Extranjero",              num(data.pob_pueblo_extranjero), ""]
+      ];
+      $tabla.innerHTML = filas.map(([ind, val, uni])=>`
+        <tr><td>${ind}</td><td class="text-end">${fmt(val)}</td><td>${uni}</td></tr>
+      `).join("");
+
+      ui.ok("Datos cargados correctamente.");
+    }
+
+    // ---- Flujo principal ----
+    async function cargar(){
+      ui.spin();
+      const codigo = $sel.value; // 999 = resumen dep.
+      const url = BASE + encodeURIComponent(codigo);
+      try{
+        const raw = await getJson(url);
+        render(raw);
+      }catch(err){
+        console.error(err);
+        ui.err("No se pudieron cargar los datos (ver consola).");
+        $kpis.innerHTML = $sexo.innerHTML = $edad.innerHTML = "";
+        $tabla.innerHTML = `<tr><td colspan="3" class="muted">—</td></tr>`;
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", cargar);
+    $btn.addEventListener("click", cargar);
+  </script>
+</body>
+</html>
